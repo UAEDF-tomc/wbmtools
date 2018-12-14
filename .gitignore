@@ -1,0 +1,6 @@
+*.pyc
+*.crt
+virenv
+CMSSW_*
+prescaleWebpage/log/
+prescaleWebpage/triggerPrescales/
