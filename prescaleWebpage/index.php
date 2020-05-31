@@ -96,7 +96,9 @@ a:hover { text-decoration: underline; color: #D08504; }
       print "<span><div class=\"bar barEmpty\">$name</div></span>";
     }
   }
-  showIfExists('..', 'parent');
+  if(basename(__FILE__)!="lowestSeeds.php"){     // lowestSeed.php is a special case
+    showIfExists('..', 'parent');
+  }
 
   $fullPath=__FILE__;
 

@@ -89,35 +89,28 @@ def analyzePath(args):
   # Check in which lumis the HLT path was off (prescale 0 or not existing) or on
   hltPathOff, hltPathOn = {}, {}
   for i in prescales[path]:
-    if i in ['0', 'NotExisting']: hltPathOff.update(copy.deepcopy(prescales[path][i]))
-    else:                         hltPathOn.update(copy.deepcopy(prescales[path][i]))
+    if i in ['0', 'NotExisting']: hltPathOff = orLumis(hltPathOff, copy.deepcopy(prescales[path][i]))
+    else:                         hltPathOn  = orLumis(hltPathOn,  copy.deepcopy(prescales[path][i]))
 
   # Some lumis were missing in the runInfo json, while they are present in the certified lumis; these have prescale column -1 in wbm which means all paths/seeds are unprescaled
   missingLumis = subtractLumis(goodLumis, orLumis(hltPathOn, hltPathOff))
   for trigger in prescales:
     try:    prescales[trigger]['1'] = orLumis(prescales[trigger]['1'], missingLumis)
-    except: prescales[trigger]['1'] = missingLumis
+    except: prescales[trigger]['1'] = copy.deepcopy(missingLumis)
   hltPathOn = andLumis(goodLumis, orLumis(hltPathOn, missingLumis))
 
   # Check if there are missing lumis for the seeds
   for trigger in [t for t in prescales if t != path]:
     prescales[trigger]['NotIncluded'] = copy.deepcopy(hltPathOn)
     for ps in [ps for ps in prescales[trigger].keys() if ps != 'NotIncluded']:
-      if 'L1_SingleEG40' in trigger: 
-        print prescales[trigger]['NotIncluded']
-        print
-        print 'Subtracting ' + ps
       prescales[trigger]['NotIncluded'] = subtractLumis(prescales[trigger]['NotIncluded'], prescales[trigger][ps])
-    if 'L1_SingleEG40' in trigger:
-      print prescales[trigger]['NotIncluded']
-      print
 
   # Clean up: only keep lumis which are certified, do not show the L1 seeds for lumis where the HLT path is off
   for trigger in prescales:
     for ps in prescales[trigger].keys():
       prescales[trigger][ps] = andLumis(prescales[trigger][ps], goodLumis if trigger == path else hltPathOn)
       if not len(prescales[trigger][ps]): del prescales[trigger][ps]
-      
+
   # Remove those seeds with only 0 and NotInclude
   for trigger in [t for t in prescales if t != path]:
     if trigger != path:
@@ -155,6 +148,47 @@ def analyzePath(args):
         else:
           f.write(line)
 
+  # In case we are dealing with onle L1_SingleEG and/or L1_SingleIsoEG seeds, make some overview of lowest seeds with prescale=1
+  if all('L1_SingleEG' in seed or 'L1_SingleIsoEG' in seed for seed in prescales.keys() if 'HLT' not in seed):
+
+    def lowestSeeds(l1SeedType):
+      hasLowerSeed = {}
+      isLowestSeed = {}
+      for l1Seed in sorted([seed for seed in prescales.keys() if l1SeedType in seed]):
+        if not '1' in prescales[l1Seed]: continue
+        lumis = subtractLumis(prescales[l1Seed]['1'], hasLowerSeed)
+        if not len(lumis): continue
+        try:    isLowestSeed[l1Seed.replace('er', '')] += lumis  # in case both 'er' and non-'er' should be added
+        except: isLowestSeed[l1Seed.replace('er', '')]  = lumis
+        hasLowerSeed = orLumis(hasLowerSeed, copy.deepcopy(lumis))  # copy is important here
+      return isLowestSeed
+
+    nonIsoSeeds = lowestSeeds('L1_SingleEG')
+    isoSeeds    = lowestSeeds('L1_SingleIsoEG')
+    try:    os.makedirs(os.path.join(jsonDir, 'lowestSeeds'))
+    except: pass
+
+    with open('index.php') as template:
+      with open(os.path.join(jsonDir, 'lowestSeeds', 'lowestSeeds.php'), 'w') as f:
+        for line in template:
+          if 'TITLE' in line:
+            f.write('echo "Lowest L1 seed (iso and non-iso) thresholds for ' + path + ' (' + year + ')";\n')
+          elif 'DIV' in line:
+            f.write('\n')
+          elif 'LISTSEEDS' in line:
+            for isoSeed in sorted(isoSeeds.keys()):
+              for nonIsoSeed in sorted(nonIsoSeeds.keys()):
+                lumis = andLumis(isoSeeds[isoSeed], nonIsoSeeds[nonIsoSeed])
+                if not len(lumis): continue
+                id = (isoSeed + '_' + nonIsoSeed).replace('L1_Single', '')
+                dumpJSON(os.path.join(jsonDir, 'lowestSeeds', id + '.json'), lumis)
+                f.write('<li>' + id + ' <a href=' + id + '.json>(' + ('%.2f' % getIntLumi(lumis, puData)) + '/fb)</a><br>\n')
+          else:
+            f.write(line)
+
+    print 'Made ' + os.path.join(jsonDir, 'lowestSeeds', 'lowestSeeds.php')
+
+
 #
 # Get all HLT paths which include some EGamma object
 #
@@ -162,7 +196,7 @@ def getAllPaths(year):
   paths = []
   for hltData in loadJSON('../data/' + hltPrescalesJSON[year]).values():
     for hlt in hltData:
-      if 'HLT_' in hlt[1] and any(x in hlt[1] for x in ['Ele', 'Pho', 'ele', 'pho', 'SC']):
+      if 'HLT_' in hlt[1]: #and any(x in hlt[1] for x in ['Ele', 'Pho', 'ele', 'pho', 'SC']):
        paths.append(hlt[1].split('_v')[0])
   return list(set(paths))
 
